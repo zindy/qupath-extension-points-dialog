@@ -1,12 +1,22 @@
-# qupath-extension-points-dialog
+# qupath-extension-points-dialog (QuPath v0.8.x)
 
-A QuPath extension that adds the points/counting dialog for creating and managing Point annotations, extracted from QuPath core to allow independent development and release.
+A QuPath v0.8.x extension that replaces the built-in points/counting dialog with one that lets you 
+expand each point annotation to inspect and interact with its individual points - for now, 
+focusing on and deleting single points.
 
-Once installed, the dialog is available under **Extensions > PointsDialog > Open points dialog**. It opens a panel for creating, classifying, loading, saving, and deleting point annotations alongside the current image.
+Once installed, the dialog is available under **Extensions > PointsDialog > Open points dialog**. 
+It also opens automatically if you use QuPath's original counting-tool button or menu entry, so 
+you get the new dialog either way without changing your existing workflow. Removing the extension 
+restores QuPath's original points dialog.
 
-Unlike QuPath's original points dialog (as of v0.7.0), this one uses a "Tree view" to display the individual points contained in each of the annotations. Each annotation can be expanded to reveal the constituting points and their image coordinates.
+The dialog offers a panel for creating, classifying, loading, saving, and deleting point 
+annotations alongside the current image. Unlike QuPath's original points dialog (as of v0.7.0), 
+points are shown in a tree view: each annotation can be expanded to reveal its individual points 
+and their image coordinates.
 
-Selecting a point automatically centres it in the QuPath viewer. This makes it easy to quickly check if all the points are correct (for example, for training a classifier). Selected points can also be removed, either using the "DEL" key, or pushing the "Delete" button.
+Selecting a point automatically centres it in the QuPath viewer, making it easy to quickly check 
+that all points are correct (for example, when preparing training data for a classifier). 
+Selected points can be removed either with the "DEL" key or the "Delete" button.
 
 ## Build the extension
 

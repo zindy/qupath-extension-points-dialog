@@ -52,7 +52,7 @@ public class PointsDialogExtension implements QuPathExtension {
 	 * This allows QuPath to inform the user if it seems to be incompatible.
 	 * TODO: define this
 	 */
-	private static final Version EXTENSION_QUPATH_VERSION = Version.parse("v0.5.0");
+	private static final Version EXTENSION_QUPATH_VERSION = Version.parse("v0.8.0");
 
 	/**
 	 * Flag whether the extension is already installed (might not be needed... but we'll do it anyway)
@@ -108,15 +108,40 @@ public class PointsDialogExtension implements QuPathExtension {
 	 * @param qupath The QuPath GUI
 	 */
 	private void addMenuItem(QuPathGUI qupath) {
+		// Build once, eagerly - we need the reference below before any menu click happens.
+		if (countingDialogCommand == null)
+			countingDialogCommand = new CountingDialogCommand(qupath);
+		redirectBuiltInCountingDialog(qupath, countingDialogCommand);
+
 		var menu = qupath.getMenu("Extensions>" + EXTENSION_NAME, true);
 		MenuItem menuItem = new MenuItem(resources.getString("menu.openDialog"));
-		menuItem.setOnAction(e -> {
-			if (countingDialogCommand == null)
-				countingDialogCommand = new CountingDialogCommand(qupath);
-			countingDialogCommand.run();
-		});
+		menuItem.setOnAction(e -> countingDialogCommand.run());
 		menuItem.disableProperty().bind(enableExtensionProperty.not());
 		menu.getItems().add(menuItem);
+	}
+
+	/**
+	 * Redirect QuPath's built-in "Show counting tool" action so it opens our fork instead of the
+	 * core CountingDialogCommand. This covers every trigger path - the built-in toolbar/menu entry
+	 * AND the internal QuPathGUI listener that fires SHOW_POINTS_DIALOG.handle() whenever the
+	 * Points tool is selected - since they all funnel through the same Action.handle().
+	 * <p>
+	 * Action#setEventHandler(Consumer) is protected, hence reflection. Fails safe: if this ever
+	 * breaks (controlsfx upgrade), we just log and leave the built-in action alone - worst case
+	 * you're back to seeing both dialogs, nothing crashes.
+	 */
+	private void redirectBuiltInCountingDialog(QuPathGUI qupath, CountingDialogCommand replacement) {
+		var action = qupath.getCommonActions().SHOW_POINTS_DIALOG;
+		try {
+			var method = org.controlsfx.control.action.Action.class
+					.getDeclaredMethod("setEventHandler", java.util.function.Consumer.class);
+			method.setAccessible(true);
+			java.util.function.Consumer<javafx.event.ActionEvent> handler = event -> replacement.run();
+			method.invoke(action, handler);
+		} catch (ReflectiveOperationException e) {
+			logger.warn("Could not redirect QuPath's built-in counting-tool action - " +
+					"the original dialog may still open alongside this extension's", e);
+		}
 	}
 
 

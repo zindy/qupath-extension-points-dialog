@@ -334,14 +334,16 @@ public class CountingDialogCommand implements Runnable, ChangeListener<ImageData
 		dialog.setScene(scene);
 		dialog.setOnCloseRequest(e -> toolManager.setSelectedTool(PathTools.MOVE));
 		
-		if (toolManager.getSelectedTool() != PathTools.POINTS)
-			toolManager.setSelectedTool(PathTools.POINTS);
-		attemptToSelectPoints();
-		
+		// Must be set before the first show() - and setting the tool below can trigger a re-entrant
+		// run() call (via the redirected SHOW_POINTS_DIALOG action) that shows the stage early.
 		dialog.initModality(Modality.NONE);
 		dialog.setResizable(true);
 		dialog.initOwner(qupath.getStage());
 
+		if (toolManager.getSelectedTool() != PathTools.POINTS)
+			toolManager.setSelectedTool(PathTools.POINTS);
+		attemptToSelectPoints();
+		
 		dialog.show();
 	}
 

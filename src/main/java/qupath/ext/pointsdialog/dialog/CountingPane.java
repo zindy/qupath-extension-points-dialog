@@ -427,9 +427,35 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 		pointsList.remove(entry.index);
 		ROI newRoi = ROIs.createPointsROI(pointsList, roi.getImagePlane());
 		((PathROIObject)pathObject).setROI(newRoi);
+
+		// What was 'next' now sits at the same index the deleted point occupied; clamp to the
+		// new last point if we deleted the last one, or select nothing if none remain.
+		int nextIndex = pointsList.isEmpty() ? -1 : Math.min(entry.index, pointsList.size() - 1);
+
 		hierarchy.updateObject(pathObject, false);
+
+		// hierarchy.updateObject() synchronously rebuilds the tree (and, via selectedPathObjectChanged,
+		// falls back to selecting the parent annotation row - see reload()). Override that here.
+		if (nextIndex >= 0)
+			selectPoint(pathObject, nextIndex);
 	}
 
+	/**
+	 * Select a specific point row within an annotation's (already-reloaded) tree children,
+	 * so a delete restores the user's position in the list instead of collapsing selection
+	 * back up to the parent annotation row.
+	 */
+	private void selectPoint(PathObject pathObject, int index) {
+		var item = itemMap.get(pathObject);
+		if (item == null)
+			return;
+		var children = item.getChildren();
+		if (index < 0 || index >= children.size())
+			return;
+		var target = children.get(index);
+		treeCounts.getSelectionModel().select(target);
+		treeCounts.scrollTo(treeCounts.getRow(target));
+	}
 
 	@Override
 	public void hierarchyChanged(PathObjectHierarchyEvent event) {

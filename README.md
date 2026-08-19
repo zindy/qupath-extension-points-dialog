@@ -1,4 +1,4 @@
-# qupath-extension-pointsdialog
+# qupath-extension-points-dialog
 
 A QuPath extension that adds the points/counting dialog for creating and managing Point annotations, extracted from QuPath core to allow independent development and release.
 

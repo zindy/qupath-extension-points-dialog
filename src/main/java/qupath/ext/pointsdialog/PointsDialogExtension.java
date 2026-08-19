@@ -1,27 +1,21 @@
-package qupath.ext.template;
+package qupath.ext.pointsdialog;
 
 import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.IntegerProperty;
-import javafx.beans.property.Property;
-import javafx.scene.Scene;
 import javafx.scene.control.MenuItem;
-import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import qupath.ext.template.ui.InterfaceController;
-import qupath.fx.dialogs.Dialogs;
+import qupath.ext.pointsdialog.dialog.CountingDialogCommand;
 import qupath.fx.prefs.controlsfx.PropertyItemBuilder;
 import qupath.lib.common.Version;
 import qupath.lib.gui.QuPathGUI;
 import qupath.lib.gui.extensions.QuPathExtension;
 import qupath.lib.gui.prefs.PathPrefs;
 
-import java.io.IOException;
 import java.util.ResourceBundle;
 
 
 /**
- * This is a demo to provide a template for creating a new QuPath extension.
+ * This is a demo to provide a pointsdialog for creating a new QuPath extension.
  * <p>
  * It doesn't do much - it just shows how to add a menu item and a preference.
  * See the code and comments below for more info.
@@ -32,14 +26,14 @@ import java.util.ResourceBundle;
  *     /resources/META-INF/services/qupath.lib.gui.extensions.QuPathExtension
  * </pre>
  */
-public class DemoExtension implements QuPathExtension {
+public class PointsDialogExtension implements QuPathExtension {
 	// TODO: add and modify strings to this resource bundle as needed
 	/**
 	 * A resource bundle containing all the text used by the extension. This may be useful for translation to other languages.
 	 * Note that this is optional and you can define the text within the code and FXML files that you use.
 	 */
-	private static final ResourceBundle resources = ResourceBundle.getBundle("qupath.ext.template.ui.strings");
-	private static final Logger logger = LoggerFactory.getLogger(DemoExtension.class);
+	private static final ResourceBundle resources = ResourceBundle.getBundle("qupath.ext.pointsdialog.ui.strings");
+	private static final Logger logger = LoggerFactory.getLogger(PointsDialogExtension.class);
 
 	/**
 	 * Display name for your extension
@@ -73,26 +67,11 @@ public class DemoExtension implements QuPathExtension {
 			"enableExtension", true);
 
 	/**
-	 * Another 'persistent preference'.
-	 * This one will be managed using a GUI element created by the extension.
-	 * We use {@link Property<Integer>} rather than {@link IntegerProperty}
-	 * because of the type of GUI element we use to manage it.
+	 * The command that actually opens the counting/points dialog.
+	 * Created lazily (once) in {@link #addMenuItem(QuPathGUI)} and reused on every click,
+	 * since {@link CountingDialogCommand} keeps track of its own dialog Stage internally.
 	 */
-	private static final Property<Integer> integerOption = PathPrefs.createPersistentPreference(
-			"demo.num.option", 1).asObject();
-
-	/**
-	 * An example of how to expose persistent preferences to other classes in your extension.
-	 * @return The persistent preference, so that it can be read or set somewhere else.
-	 */
-	public static Property<Integer> integerOptionProperty() {
-		return integerOption;
-	}
-
-	/**
-	 * Create a stage for the extension to display
-	 */
-	private Stage stage;
+	private CountingDialogCommand countingDialogCommand;
 
 	@Override
 	public void installExtension(QuPathGUI qupath) {
@@ -106,7 +85,7 @@ public class DemoExtension implements QuPathExtension {
 	}
 
 	/**
-	 * Demo showing how to add a persistent preference to the QuPath preferences pane.
+	 * PointsDialog showing how to add a persistent preference to the QuPath preferences pane.
 	 * The preference will be in a section of the preference pane based on the
 	 * category you set. The description is used as a tooltip.
 	 * @param qupath The currently running QuPathGUI instance.
@@ -114,7 +93,7 @@ public class DemoExtension implements QuPathExtension {
 	private void addPreferenceToPane(QuPathGUI qupath) {
         var propertyItem = new PropertyItemBuilder<>(enableExtensionProperty, Boolean.class)
 				.name(resources.getString("menu.enable"))
-				.category("Demo extension")
+				.category("PointsDialog extension")
 				.description("Enable the demo extension")
 				.build();
 		qupath.getPreferencePane()
@@ -125,35 +104,19 @@ public class DemoExtension implements QuPathExtension {
 
 
 	/**
-	 * Demo showing how a new command can be added to a QuPath menu.
+	 * Add a menu item that opens the counting/points dialog.
 	 * @param qupath The QuPath GUI
 	 */
 	private void addMenuItem(QuPathGUI qupath) {
 		var menu = qupath.getMenu("Extensions>" + EXTENSION_NAME, true);
-		MenuItem menuItem = new MenuItem("My menu item");
-		menuItem.setOnAction(e -> createStage());
+		MenuItem menuItem = new MenuItem(resources.getString("menu.openDialog"));
+		menuItem.setOnAction(e -> {
+			if (countingDialogCommand == null)
+				countingDialogCommand = new CountingDialogCommand(qupath);
+			countingDialogCommand.run();
+		});
 		menuItem.disableProperty().bind(enableExtensionProperty.not());
 		menu.getItems().add(menuItem);
-	}
-
-	/**
-	 * Demo showing how to create a new stage with a JavaFX FXML interface.
-	 */
-	private void createStage() {
-		if (stage == null) {
-			try {
-				stage = new Stage();
-				Scene scene = new Scene(InterfaceController.createInstance());
-				stage.initOwner(QuPathGUI.getInstance().getStage());
-				stage.setTitle(resources.getString("stage.title"));
-				stage.setScene(scene);
-				stage.setResizable(false);
-			} catch (IOException e) {
-				Dialogs.showErrorMessage(resources.getString("error"), resources.getString("error.gui-loading-failed"));
-				logger.error("Unable to load extension interface FXML", e);
-			}
-		}
-		stage.show();
 	}
 
 

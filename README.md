@@ -1,224 +1,90 @@
-# QuPath extension template
+# qupath-extension-pointsdialog
 
-This repo contains a template and instructions to help create a new extension for [QuPath](https://qupath.github.io).
+A QuPath extension that adds the points/counting dialog for creating and managing Point annotations, extracted from QuPath core to allow independent development and release.
 
-It already contains two minimal extensions - one using Java, one using Groovy - so the first task is to make sure that they work.
-Then, it's a matter of customizing the code to make it more useful.
+Once installed, the dialog is available under **Extensions > PointsDialog > Open points dialog**. It opens a panel for creating, classifying, loading, saving, and deleting point annotations alongside the current image.
 
-> **Update!** 
-> For QuPath v0.6.0 this repo switched to use Kotlin DSL for Gradle build files - 
-> and also to use the [QuPath Gradle Plugin](https://github.com/qupath/qupath-gradle-plugin).
-> 
-> The outcome is that the build files are _much_ simpler.
+Unlike QuPath's original points dialog (as of v0.7.0), this one uses a "Tree view" to display the individual points contained in each of the annotations. Each annotation can be expanded to reveal the constituting points and their image coordinates.
 
+Selecting a point automatically centres it in the QuPath viewer. This makes it easy to quickly check if all the points are correct (for example, for training a classifier). Selected points can also be removed, either using the "DEL" key, or pushing the "Delete" button.
 
 ## Build the extension
 
-Building the extension with Gradle should be pretty easy - you don't even need to install Gradle separately, because the 
-[Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html) will take care of that.
+You don't need to install Gradle separately — the [Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html) handles that.
 
-Open a command prompt, navigate to where the code lives, and use
+Open a command prompt, navigate to the project root, and run:
+
 ```bash
 gradlew build
 ```
 
-The built extension should be found inside `build/libs`.
-You can drag this onto QuPath to install it.
-You'll be prompted to create a user directory if you don't already have one.
-
-The minimal extension here doesn't do much, but it should at least install a new command under the 'Extensions' menu in 
-QuPath.
-
-> In case your extension contains external dependencies beyond what QuPath already includes, you can create a 
-> [single jar file](https://imperceptiblethoughts.com/shadow/introduction/#benefits-of-shadow) that bundles these along 
-> with your extension by using
-> ```bash
-> gradlew shadowJar
-> ```
-> If you don't do that, you'll need to drag *all* the extra dependences onto QuPath to install them as well.
-
+The built extension jar will be in `build/libs`. Drag it onto QuPath to install it — you'll be prompted to create a user directory if you don't already have one.
 
 ## Configure the extension
 
-Edit `build.gradle.kts` to specify the details of your extension
+Unlike the original QuPath extension template, here the version is set in a separate [VERSION](VERSION) file rather than directly in `build.gradle.kts`.
 
-```kotlin
-qupathExtension {
-  name = "qupath-extension-template"
-  group = "io.github.qupath"
-  version = releaseVersion
-  description = "A simple QuPath extension"
-  automaticModule = "io.github.qupath.extension.template"
-}
+A build and publish action is triggered *automatically* on GitHub when a git tag is pushed that matches the VERSION file (*sans* the `-SNAPSHOT` part) — see [build.yml](.github/workflows/build.yml).
+
+## Run QuPath + the extension during development
+
+### 1. Make sure you have Java installed
+
+QuPath uses Java 25 (a Long Term Support release). Download it from https://adoptium.net/
+
+### 2. Get QuPath's source code
+
+Instructions at https://qupath.readthedocs.io/en/stable/docs/reference/building.html
+
+### 3. Create an `include-extra` file
+
+In the root of the QuPath source (not this extension), create a file called `include-extra` with:
+
+```
+[includeBuild]
+../qupath-extension-pointsdialog
+
+[dependencies]
+io.github.qupath:qupath-extension-pointsdialog
 ```
 
-Edit `settings.gradle.kts` to specify which version of QuPath your extension should be compatible with, e.g.
+### 4. Run QuPath
 
-```kotlin
-qupath {
-    version = "0.6.0"
-}
+```bash
+gradlew run
 ```
 
-Unlike in the original template project, here the version is set in a separate [VERSION](VERSION) file rather than in `build.gradle.kts`.
+QuPath will launch with the extension installed. Check **Extensions** in the menu bar to confirm.
 
-Additionally, a build and publish action is triggered *automatically* in Github if a git tag is pushed and it matches the VERSION (*sans* the `-SNAPSHOT` part). See the modified [build.yml](.github/workflows/build.yml).
+## IDE setup
 
-To trigger a build and publish action, issue the following commands from your local prompt:
-```
+QuPath is developed in IntelliJ. You can import this extension the same way, and create a [Run configuration](https://www.jetbrains.com/help/idea/run-debug-configuration.html) pointing to `gradlew run`.
+
+## Releases
+
+To publish a new version, push a git tag matching the [VERSION](VERSION) file (sans the `-SNAPSHOT` part):
+
+```bash
 git tag -a v0.1.0 -m "Release version 0.1.0"
 git push origin v0.1.0
 ```
 
-Or from the extension's folder, this bash one-liner:
-```
+Or, from the extension's folder, this bash one-liner reads the version straight from the file:
+
+```bash
 VERSION=$(cat VERSION | sed 's/-SNAPSHOT//'); git tag -a "v$VERSION" -m "Release version $VERSION"; git push origin "v$VERSION"
 ```
 
-Once the new extension is published, you can increment the VERSION file and initiate an new round of development.
+Pushing the tag triggers [build.yml](.github/workflows/build.yml), which builds the extension and creates a release with the jar, sources, and javadoc attached. Once published, users can install it automatically via QuPath's extension manager.
 
+Once the new version is published, increment the VERSION file to start the next round of development.
 
-
-
-## Run QuPath + the extension
-
-During development, your probably want to run QuPath easily with your extension installed for debugging.
-
-### 0. Make sure you have Java installed
-You'll need to install Java first.
-
-At the time of writing, we use a Java 25 JDK downloaded from https://adoptium.net/
-
-> Java 25 is a 'Long Term Support' release - which is why we use it instead of the very latest version.
-
-### 1. Get QuPath's source code
-You can find instructions at https://qupath.readthedocs.io/en/stable/docs/reference/building.html
-
-### 2. Create an `include-extra` file
-Create a file called `include-extra` in the root directory of the QuPath source code (*not* the extension code!).
-
-Set the contents of this file to:
-```
-[includeBuild]
-/path/to/your/extension
-
-[dependencies]
-extension-group:extension-name
-```
-replacing the default lines where needed.
-
-For example, to build the extension with the names given above you'd use
-```
-[includeBuild]
-../qupath-extension-template
-
-[dependencies]
-io.github.qupath:qupath-extension-template
-```
-
-### 3. Run QuPath
-Run QuPath from the command line using
-```
-gradlew run
-```
-If all goes well, QuPath should launch and you can check the *Extensions* mention to confirm the extension is installed.
-
-
-## Set up in an IDE (optional)
-
-During development, things are likely to be much easier if you work within an IDE.
-
-QuPath itself is developed using IntelliJ, and you can import the extension template there.
-
-The setup process is as above, and you'll need a a [Run configuration](https://www.jetbrains.com/help/idea/run-debug-configuration.html) 
-to call `gradlew run`.
-
-
-## Customize the extension
-
-Now you're ready for the creative part.
-
-You can develop the extension using either Java or Groovy - the template includes examples of both.
-
-### Create the extension Java or Groovy file(s)
-
-For the extension to work, you need to create at least one file that extends `qupath.lib.gui.extensions.QuPathExtension`.
-
-There are two examples in the template, in two languages:
-* **Java:** `qupath.ext.template.DemoExtension.java`.
-* **Groovy:** `qupath.ext.template.DemoGroovyExtension.java`.
-
-You can pick the one that corresponds to the language you want to use, and delete the other.
-
-Then take your chosen file and rename it, edit it, move it to another package... basically, make it your own.
-
-> Please **don't neglect this step!** 
-> If you do, there's a chance of multiple extensions being created with the same class names... and causing confusion later.
-
-### Update the `META-INF/services` file
-
-For QuPath to *find* the extension later, the full class name needs to be available in `resources/META-INFO/services/qupath.lib.gui.extensions.QuPathExtensions`.
-
-So remember to edit that file to include the class name that you actually used for your extension.
-
-### Specify your license
-
-Add a license file to your GitHub repo so that others know what they can and can't do with your extension.
-
-This should be compatible with QuPath's license -- see https://github.com/qupath/qupath
-
-## Repository configuration
-
-### Easy install
-
-If you follow some conventions in naming your extension and making releases, then other QuPath users will find it easy to automatically
-install and update your extension!
-
-First, we suggest you name your extension `qupath-extension-[something]`, and keep it in its own repository (named the same as the extension),
-separate from other projects.
-
-Next, when you want to publish a new version of your extension, use the `github_release.yml` workflow included in this repository.
-
-To do so, you'd need to navigate to `Actions -> Make draft release -> Run workflow -> Run workflow` as shown in the following screenshot:
-
-![Screenshot from 2024-03-14 18-44-42](https://github.com/alanocallaghan/qupath-extension-template/assets/10779688/4712a209-eda7-4f80-8bed-bbab20e4f50a)
-
-This will automatically build the extension, and create a draft release containing the extension jar (and its associated sources and javadoc).
-You can then navigate to `Releases` and fill out information about the release --- the version, any significant changes, etc.
-Once published, users will be able to automatically install the extension as described here:
-https://qupath.readthedocs.io/en/0.5/docs/intro/extensions.html#installing-extensions
-
-### Catalogs
-
-QuPath's extension manager can easily install an extension if it is referenced in a **catalog**.
-A catalog is a JSON file hosted on a GitHub repository containing information about extensions, making it possible to easily manage them from QuPath.
-
-To create a catalog, follow the [extension catalog model documentation](https://qupath.github.io/extension-catalog-model/).
-You will need to create a JSON file containing specific information about your extension and host it on a dedicated GitHub repository.
-Once the catalog is created, any user will be able to easily install your catalog by:
-
-* Opening QuPath's extension manager by clicking on `Extensions` -> `Manage extensions` in QuPath.
-* Adding the URL to your catalog by clicking on `Manage extension catalogs` -> `Add` in the extension manager.
-* Clicking on the `+` symbol next to your extension in the extension manager.
-
-QuPath will then make it easy to manage your extension and automatically inform users when an update is available.
-
-### Replace this readme
-
-Don't forget to replace the contents of this readme with your own!
-
+See https://qupath.readthedocs.io/en/0.5/docs/intro/extensions.html#installing-extensions for details.
 
 ## Getting help
 
-For questions about QuPath and/or creating new extensions, please use the forum at https://forum.image.sc/tag/qupath
-
-------
+For questions about QuPath and creating extensions, use the forum at https://forum.image.sc/tag/qupath
 
 ## License
 
-This is just a template, you're free to use it however you like.
-You can treat the contents of *this repository only* as being under [the Unlicense](https://unlicense.org) (except for the Gradle wrapper, which has its own license included).
-
-If you use it to create a new QuPath extension, I'd strongly encourage you to select a suitable open-source license for the extension.
-
-Note that *QuPath itself* is available under the GPL, so you do have to abide by those terms: see https://github.com/qupath/qupath for more.
+The `CountingDialogCommand` and `CountingPane` classes in this extension are derived from [QuPath](https://github.com/qupath/qupath), which is available under the GPL v3. This extension is therefore also licensed under the [GPL v3](https://www.gnu.org/licenses/gpl-3.0.html).

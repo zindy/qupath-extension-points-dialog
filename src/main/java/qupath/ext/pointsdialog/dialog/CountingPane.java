@@ -39,6 +39,7 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.shape.Rectangle;
+import javafx.scene.Node;
 import org.controlsfx.control.action.Action;
 import org.controlsfx.control.action.ActionUtils;
 import qupath.fx.dialogs.Dialogs;
@@ -71,6 +72,7 @@ import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -104,7 +106,13 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 	 * selection) survives hierarchy change events where possible.
 	 */
 	private final Map<PathObject, AnnotationTreeItem> itemMap = new LinkedHashMap<>();
-	
+	// New field, alongside itemMap
+	/**
+	 * Point count last seen for each annotation, used to detect that a single point was
+	 * just added (e.g. via a canvas click) so it can be auto-selected.
+	 */
+	private final Map<PathObject, Integer> lastPointCounts = new HashMap<>();
+
 	private Action btnAdd = new Action(QuPathResources.getString("Commands.CountingPane.add"), e -> {
 		PathObject pathObjectCounts = PathObjects.createAnnotationObject(ROIs.createPointsROI(ImagePlane.getDefaultPlane()));
 		hierarchy.addObject(pathObjectCounts);
@@ -377,11 +385,13 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 		} else if (value instanceof PointEntry entry) {
 			if (hierarchy != null && hierarchy.getSelectionModel().getSelectedObject() != entry.parent)
 				hierarchy.getSelectionModel().setSelectedObject(entry.parent);
-			centerOnPoint(entry);
+			// Skip centering if this selection is us restoring state after a hierarchy resync
+			// (e.g. a point just got added) rather than an actual click on a point row.
+			if (!restoringSelection)
+				centerOnPoint(entry);
 		}
-	}
-	
-	
+	}	
+
 	/**
 	 * Center the current viewer on a point, without changing the current zoom/magnification.
 	 */
@@ -440,11 +450,6 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 			selectPoint(pathObject, nextIndex);
 	}
 
-	/**
-	 * Select a specific point row within an annotation's (already-reloaded) tree children,
-	 * so a delete restores the user's position in the list instead of collapsing selection
-	 * back up to the parent annotation row.
-	 */
 	private void selectPoint(PathObject pathObject, int index) {
 		var item = itemMap.get(pathObject);
 		if (item == null)
@@ -454,8 +459,39 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 			return;
 		var target = children.get(index);
 		treeCounts.getSelectionModel().select(target);
-		treeCounts.scrollTo(treeCounts.getRow(target));
+		int row = treeCounts.getRow(target);
+		// Defer the visibility check to the next pulse - the cell nodes lookupAll() sees
+		// still reflect the pre-delete layout until JavaFX has processed the children change.
+		Platform.runLater(() -> scrollToIfNotVisible(row));
 	}
+
+	/**
+	 * TreeView#scrollTo(int) always re-anchors the target row to the top of the viewport, even
+	 * when it's already visible - which produces a jarring reflow for something as small as
+	 * "the next point over got selected". Only scroll when the row actually isn't rendered
+	 * within the current viewport bounds.
+	 */
+	private void scrollToIfNotVisible(int row) {
+		for (Node node : treeCounts.lookupAll(".tree-cell")) {
+			if (node instanceof TreeCell<?> cell && cell.getIndex() == row && !cell.isEmpty()) {
+				var cellBounds = treeCounts.sceneToLocal(cell.localToScene(cell.getBoundsInLocal()));
+				var viewBounds = treeCounts.getBoundsInLocal();
+				if (viewBounds.contains(cellBounds.getMinX(), cellBounds.getMinY())
+						&& viewBounds.contains(cellBounds.getMinX(), cellBounds.getMaxY() - 1))
+					return; // already fully on-screen - leave the scroll position alone
+				break;
+			}
+		}
+		treeCounts.scrollTo(row);
+	}
+
+	/**
+	 * True while we're re-syncing the tree's selection to match a hierarchy change (e.g. a point
+	 * added or removed via the viewer) rather than the user actually clicking a tree row. Guards
+	 * {@link #updateSelectionFromTree(Object)} so a resync-driven selection never recenters the
+	 * viewer - only a deliberate click on a point row should move the view.
+	 */
+	private boolean restoringSelection = false;
 
 	@Override
 	public void hierarchyChanged(PathObjectHierarchyEvent event) {
@@ -465,19 +501,67 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 		}
 		if (hierarchy == null) {
 			itemMap.clear();
+			lastPointCounts.clear();
 			rootItem.getChildren().clear();
 			return;
 		}
-		
-		syncTreeWithHierarchy();
-		
-		// We want to retain selection status
-		var selected = hierarchy.getSelectionModel().getSelectedObject();
-		var allSelected = hierarchy.getSelectionModel().getSelectedObjects();
-		selectedPathObjectChanged(selected, null, allSelected);
+
+		restoringSelection = true;
+		try {
+			var selected = hierarchy.getSelectionModel().getSelectedObject();
+
+			// Detect a single point having just been added to the currently active
+			// annotation (e.g. via a canvas click), so we can keep it selected -
+			// otherwise the next Delete would hit whatever the tree fell back to.
+			Integer newlyAddedIndex = null;
+			if (selected != null && selected.getROI() instanceof PointsROI pointsRoi) {
+				int newCount = pointsRoi.getNumPoints();
+				Integer oldCount = lastPointCounts.get(selected);
+				if (oldCount != null && newCount == oldCount + 1)
+					newlyAddedIndex = newCount - 1;
+			}
+
+			syncTreeWithHierarchy();
+			updateLastPointCounts();
+
+			// We want to retain selection status
+			var allSelected = hierarchy.getSelectionModel().getSelectedObjects();
+			selectedPathObjectChanged(selected, null, allSelected);
+
+			if (newlyAddedIndex != null)
+				selectPointQuietly(selected, newlyAddedIndex);
+		} finally {
+			restoringSelection = false;
+		}
 	}
-	
-	
+
+	private void updateLastPointCounts() {
+		lastPointCounts.clear();
+		for (PathObject po : itemMap.keySet()) {
+			if (po.getROI() instanceof PointsROI pointsRoi)
+				lastPointCounts.put(po, pointsRoi.getNumPoints());
+		}
+	}
+
+	/**
+	 * Select a point row by index without forcing its parent annotation to expand.
+	 * Only scrolls into view if the row happens to already be visible (i.e. the
+	 * annotation is expanded) - otherwise there's nothing to scroll to, and the
+	 * selection just tracks quietly in the model for the next Edit/Delete.
+	 */
+	private void selectPointQuietly(PathObject pathObject, int index) {
+		var item = itemMap.get(pathObject);
+		if (item == null)
+			return;
+		var children = item.getChildren(); // forces lazy load, independent of expanded/visual state
+		if (index < 0 || index >= children.size())
+			return;
+		var target = children.get(index);
+		treeCounts.getSelectionModel().select(target);
+		int row = treeCounts.getRow(target);
+		if (row >= 0)
+			Platform.runLater(() -> scrollToIfNotVisible(row));
+	}
 	/**
 	 * Rebuild the top-level rows to match the current point annotations, reusing existing
 	 * {@link AnnotationTreeItem}s (and hence expanded state / selection) where a PathObject
@@ -487,24 +571,36 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 	 */
 	private void syncTreeWithHierarchy() {
 		Collection<PathObject> newList = hierarchy == null ? Collections.emptyList() : hierarchy.getAllPointAnnotations();
-		
-		itemMap.keySet().retainAll(newList);
-		
+
+		// Keep our own stable display order instead of following hierarchy.getAllPointAnnotations()'s
+		// iteration order, which isn't guaranteed stable. Reordering rootItem's children on every
+		// event (even reusing the same AnnotationTreeItem instances) was desyncing the TreeView's
+		// selection model - the highlighted row could silently jump to a different annotation.
+		var newSet = new LinkedHashSet<>(newList);
+		itemMap.keySet().retainAll(newSet);
+
 		List<TreeItem<Object>> orderedChildren = new ArrayList<>();
-		for (PathObject po : newList) {
-			AnnotationTreeItem item = itemMap.computeIfAbsent(po, AnnotationTreeItem::new);
+		for (AnnotationTreeItem item : itemMap.values()) {
 			if (item.isExpanded())
 				item.reload();
 			else
 				item.invalidate();
 			orderedChildren.add(item);
 		}
+		// Anything not yet in itemMap is a genuinely new annotation - append it
+		for (PathObject po : newSet) {
+			if (!itemMap.containsKey(po)) {
+				AnnotationTreeItem item = new AnnotationTreeItem(po);
+				itemMap.put(po, item);
+				orderedChildren.add(item);
+			}
+		}
+
 		if (!rootItem.getChildren().equals(orderedChildren))
 			rootItem.getChildren().setAll(orderedChildren);
 		treeCounts.refresh();
-	}
-	
-	
+	}	
+
 	/**
 	 * A leaf tree-row referring to a single point within a parent annotation's {@link PointsROI}.
 	 * The point itself is looked up on demand (by index, from the parent's current ROI) rather
@@ -556,16 +652,28 @@ class CountingPane implements PathObjectSelectionListener, PathObjectHierarchyLi
 		}
 		
 		private void reload() {
-			List<TreeItem<Object>> children = new ArrayList<>();
-			if (getPathObject().getROI() instanceof PointsROI pointsRoi) {
-				List<Point2> points = pointsRoi.getAllPoints();
-				for (int i = 0; i < points.size(); i++)
-					children.add(new TreeItem<>(new PointEntry(getPathObject(), i)));
+			List<TreeItem<Object>> children = super.getChildren();
+			int newSize = 0;
+			if (getPathObject().getROI() instanceof PointsROI pointsRoi)
+				newSize = pointsRoi.getNumPoints();
+
+			// Reconcile in place rather than replacing every TreeItem. TreeView's selection
+			// tracking is keyed on TreeItem identity - wholesale replacement was losing the
+			// selected point's identity, which made JavaFX fall back to whatever row happened
+			// to sit at that position afterwards (sometimes the *next annotation's* header row).
+			// PointEntry resolves its coordinates lazily by index, so existing TreeItems at a
+			// given position stay correct even if points before them were added/removed.
+			if (children.size() > newSize) {
+				children.subList(newSize, children.size()).clear();
+			} else if (children.size() < newSize) {
+				List<TreeItem<Object>> toAdd = new ArrayList<>();
+				for (int i = children.size(); i < newSize; i++)
+					toAdd.add(new TreeItem<>(new PointEntry(getPathObject(), i)));
+				children.addAll(toAdd);
 			}
-			super.getChildren().setAll(children);
 			loaded = true;
-		}
-		
+		}		
+
 		@Override
 		public ObservableList<TreeItem<Object>> getChildren() {
 			if (!loaded)
